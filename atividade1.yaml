@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template to provision VPC, Subnets, RDS with MultiAZ and create a CloudWatch Dashboard."
+
+Resources:
+  # Criação do VPC
+  GabeVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: GabeVPC
+
+  # Criação da Subnet Pública
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref GabeVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet
+
+  # Criação do Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CustomInternetGateway
+
+  # Anexar o Internet Gateway ao VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref GabeVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Criação da Tabela de Rotas
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref GabeVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  # Criação da Rota Padrão para o Internet Gateway
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associação da Subnet Pública com a Tabela de Rotas
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  # Criação do Security Group para o Servidor Web
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Permitir acesso HTTP ao servidor web
+      VpcId: !Ref GabeVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WebServerSecurityGroup
+
+  # Criação da Instância EC2 para o Servidor Web
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: GabeKeyPair
+      ImageId: ami-0453ec754f44f9a4a #Amazon Linux 2023 AMI
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref WebServerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: WebServerInstance
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+
+          # Atualizar pacotes
+          yum update -y
+
+          # Instalar servidor HTTP (Apache)
+          yum install -y httpd
+
+          # Criar página HTML de teste
+          echo "<html><h1>Servidor HTTP em execução!</h1></html>" > /var/www/html/index.html
+
+          # Habilitar e iniciar o serviço HTTP
+          systemctl enable httpd
+          systemctl start httpd
+
+Outputs:
+  # Saída do Endereço IP Público da Instância EC2
+  InstancePublicIP:
+    Description: Endereço IP público da instância EC2
+    Value: !GetAtt WebServerInstance.PublicIp
+
+  # Saída do ID da Instância EC2
+  InstanceId:
+    Description: ID da instância EC2
+    Value: !Ref WebServerInstance
+
+  # Saída do ID do VPC
+  VpcId:
+    Description: ID do VPC
+    Value: !Ref GabeVPC
+
+  # Saída do ID do Security Group
+  SecurityGroupId:
+    Description: ID do Security Group
+    Value: !Ref WebServerSecurityGroup

@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template to provision VPC, Subnets, RDS with MultiAZ and create a CloudWatch Dashboard."
+
+Resources:
+  # Criação da VPC
+  GabeVPC2:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: "172.16.0.0/16"  # Define o bloco CIDR da VPC
+      EnableDnsSupport: true  # Habilita suporte a DNS
+      EnableDnsHostnames: true  # Habilita nomes de host DNS
+      Tags:
+        - Key: Name
+          Value: "GabeVPC2"  # Nome da VPC
+
+  # Criação da Subnet Pública 1
+  PublicSubnet1LAB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref GabeVPC2  # Referencia a VPC criada
+      CidrBlock: "172.16.1.0/24"  # Define o bloco CIDR da subnet
+      AvailabilityZone: !Select [ 0, !GetAZs ]  # Seleciona a primeira zona de disponibilidade
+      MapPublicIpOnLaunch: true  # Habilita IP público ao iniciar instâncias
+      Tags:
+        - Key: Name
+          Value: "PublicSubnet1LAB"  # Nome da subnet
+
+  # Criação da Subnet Pública 2
+  PublicSubnet2LAB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref GabeVPC2  # Referencia a VPC criada
+      CidrBlock: "172.16.2.0/24"  # Define o bloco CIDR da subnet
+      AvailabilityZone: !Select [ 1, !GetAZs ]  # Seleciona a segunda zona de disponibilidade
+      MapPublicIpOnLaunch: true  # Habilita IP público ao iniciar instâncias
+      Tags:
+        - Key: Name
+          Value: "PublicSubnet2LAB"  # Nome da subnet
+
+  # Criação da Subnet Privada 1
+  PrivateSubnet1LAB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref GabeVPC2  # Referencia a VPC criada
+      CidrBlock: "172.16.3.0/24"  # Define o bloco CIDR da subnet
+      AvailabilityZone: !Select [ 0, !GetAZs ]  # Seleciona a primeira zona de disponibilidade
+      MapPublicIpOnLaunch: false  # Não habilita IP público ao iniciar instâncias
+      Tags:
+        - Key: Name
+          Value: "PrivateSubnet1LAB"  # Nome da subnet
+
+  # Criação da Subnet Privada 2
+  PrivateSubnet2LAB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref GabeVPC2  # Referencia a VPC criada
+      CidrBlock: "172.16.4.0/24"  # Define o bloco CIDR da subnet
+      AvailabilityZone: !Select [ 1, !GetAZs ]  # Seleciona a segunda zona de disponibilidade
+      MapPublicIpOnLaunch: false  # Não habilita IP público ao iniciar instâncias
+      Tags:
+        - Key: Name
+          Value: "PrivateSubnet2LAB"  # Nome da subnet
+
+  # Criação do Banco de Dados RDS
+  MyDBInstance:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      AllocatedStorage: "20"  # Define o armazenamento alocado
+      DBInstanceClass: "db.t3.micro"  # Define a classe da instância do banco de dados
+      Engine: "mysql"  # Define o mecanismo do banco de dados
+      MasterUsername: "admin"  # Nome de usuário mestre
+      MasterUserPassword: "SuperSecretPassword"  # Senha do usuário mestre
+      MultiAZ: true  # Habilita Multi-AZ para alta disponibilidade
+      BackupRetentionPeriod: 7  # Período de retenção de backup em dias
+      PubliclyAccessible: false  # Define se o banco de dados é publicamente acessível
+      DBSubnetGroupName: !Ref MyDBSubnetGroup  # Referencia o grupo de subnets do banco de dados
+      VPCSecurityGroups:
+        - !Ref MyDBSecurityGroup  # Referencia o grupo de segurança do banco de dados
+
+  # Criação do Grupo de Subnets para o RDS
+  MyDBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for RDS"  # Descrição do grupo de subnets
+      SubnetIds:
+        - !Ref PrivateSubnet1LAB  # Referencia a subnet privada 1
+        - !Ref PrivateSubnet2LAB  # Referencia a subnet privada 2
+
+  # Criação do Security Group para o RDS
+  MyDBSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Allow access to RDS"  # Descrição do grupo de segurança
+      VpcId: !Ref GabeVPC2  # Referencia a VPC criada
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306  # Porta de entrada para MySQL
+          ToPort: 3306  # Porta de entrada para MySQL
+          CidrIp: 0.0.0.0/0  # Permite acesso de qualquer IP
+
+  # Criação do Dashboard no CloudWatch
+  MyCloudWatchDashboard:
+    Type: "AWS::CloudWatch::Dashboard"
+    Properties:
+      DashboardName: "RDS-Monitoring-Dashboard"  # Nome do dashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 6,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "${MyDBInstance}" ]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "CPU Utilization"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 6,
+              "y": 0,
+              "width": 6,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/RDS", "NetworkTransmitThroughput", "DBInstanceIdentifier", "${MyDBInstance}" ]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "Network Transmit Throughput"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 6,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/RDS", "NetworkReceiveThroughput", "DBInstanceIdentifier", "${MyDBInstance}" ]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "Network Receive Throughput"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  VPCID:
+    Description: "ID da VPC"
+    Value: !Ref GabeVPC2  # Saída do ID da VPC
+
+  PublicSubnet1ID:
+    Description: "ID da Subnet Pública 1"
+    Value: !Ref PublicSubnet1LAB  # Saída do ID da Subnet Pública 1
+
+  PublicSubnet2ID:
+    Description: "ID da Subnet Pública 2"
+    Value: !Ref PublicSubnet2LAB  # Saída do ID da Subnet Pública 2
+
+  PrivateSubnet1ID:
+    Description: "ID da Subnet Privada 1"
+    Value: !Ref PrivateSubnet1LAB  # Saída do ID da Subnet Privada 1
+
+  PrivateSubnet2ID:
+    Description: "ID da Subnet Privada 2"
+    Value: !Ref PrivateSubnet2LAB  # Saída do ID da Subnet Privada 2
+
+  DBInstanceEndpoint:
+    Description: "Endpoint do Banco de Dados RDS"
+    Value: !GetAtt MyDBInstance.Endpoint.Address  # Saída do endpoint do banco de dados
+
+  CloudWatchDashboardURL:
+    Description: "URL do Dashboard do CloudWatch"
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=RDS-Monitoring-Dashboard"  # Saída da URL do dashboard do CloudWatch
